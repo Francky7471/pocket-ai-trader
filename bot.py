@@ -207,30 +207,34 @@ async def cmd_status(message: Message) -> None:
     )
 
 
+def _scanner_start_text(telegram_id: int) -> str:
+    s = get_settings(telegram_id)
+    if s.cooldown_until and s.cooldown_until > datetime.now():
+        return (
+            f"⏸️ Cooldown actif jusqu'à {s.cooldown_until:%H:%M} "
+            f"({s.consecutive_losses} pertes consécutives). Scan non démarré."
+        )
+    s.scanner_running = True
+    return "🟢 Scanner démarré. Tu recevras une alerte par opportunité validée."
+
+
+def _scanner_stop_text(telegram_id: int) -> str:
+    get_settings(telegram_id).scanner_running = False
+    return "🛑 BOT ARRÊTÉ\n\nAucune nouvelle alerte ne sera envoyée."
+
+
 @router.message(Command("startbot"))
 async def cmd_startbot(message: Message) -> None:
     if not is_authorized(message.from_user.id):
         return
-    s = get_settings(message.from_user.id)
-    if s.cooldown_until and s.cooldown_until > datetime.now():
-        await message.answer(
-            f"⏸️ Cooldown actif jusqu'à {s.cooldown_until:%H:%M} "
-            f"({s.consecutive_losses} pertes consécutives). Scan non démarré."
-        )
-        return
-    s.scanner_running = True
-    # TODO Phase 4+ : lancer réellement le scanner (market data → agents →
-    # validateurs → scoring → format_alert → envoi Telegram)
-    await message.answer("🟢 Scanner démarré. Tu recevras une alerte par opportunité validée.")
+    await message.answer(_scanner_start_text(message.from_user.id))
 
 
 @router.message(Command("stopbot"))
 async def cmd_stopbot(message: Message) -> None:
     if not is_authorized(message.from_user.id):
         return
-    s = get_settings(message.from_user.id)
-    s.scanner_running = False
-    await message.answer("🛑 BOT ARRÊTÉ\n\nAucune nouvelle alerte ne sera envoyée.")
+    await message.answer(_scanner_stop_text(message.from_user.id))
 
 
 @router.message(Command("demo"))
@@ -306,13 +310,19 @@ async def cmd_help(message: Message) -> None:
 
 @router.callback_query(F.data == "scan_start")
 async def cb_scan_start(callback: CallbackQuery) -> None:
-    await cmd_startbot(callback.message)  # réutilise la logique
+    if not is_authorized(callback.from_user.id):
+        await callback.answer("⛔ Accès non autorisé.", show_alert=True)
+        return
+    await callback.message.answer(_scanner_start_text(callback.from_user.id))
     await callback.answer()
 
 
 @router.callback_query(F.data == "scan_stop")
 async def cb_scan_stop(callback: CallbackQuery) -> None:
-    await cmd_stopbot(callback.message)
+    if not is_authorized(callback.from_user.id):
+        await callback.answer("⛔ Accès non autorisé.", show_alert=True)
+        return
+    await callback.message.answer(_scanner_stop_text(callback.from_user.id))
     await callback.answer()
 
 

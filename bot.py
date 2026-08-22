@@ -39,6 +39,7 @@ import indicators
 import candlestick
 import strategy
 import agents
+import validators
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pocket_ai_trader")
@@ -217,6 +218,9 @@ def main_menu() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="📐 Stratégies", callback_data="show_strategies"),
             InlineKeyboardButton(text="🤖 Agents IA", callback_data="show_agents"),
+        ],
+        [
+            InlineKeyboardButton(text="✅ Validateurs", callback_data="show_validators"),
         ],
         [
             InlineKeyboardButton(text="📈 Statistiques", callback_data="stats"),
@@ -495,6 +499,44 @@ async def cb_show_agents(callback: CallbackQuery) -> None:
 
         signals = agents.run_all_agents(snap_m5, candle_analysis, candles_m5)
         lines = [f"🤖 {instrument} — 5 agents IA\n"] + [sig.summary_line() for sig in signals]
+        await callback.message.answer("\n".join(lines))
+
+
+@router.callback_query(F.data == "show_validators")
+async def cb_show_validators(callback: CallbackQuery) -> None:
+    if not is_authorized(callback.from_user.id):
+        await callback.answer("⛔ Accès non autorisé.", show_alert=True)
+        return
+    await callback.answer()
+    s = get_settings(callback.from_user.id)
+    await callback.message.answer("⏳ Pipeline complet : agents IA + validateurs...")
+    for instrument in s.instruments:
+        try:
+            candles_m5 = await market_data.get_candles(instrument, "M5", count=30)
+        except market_data.MarketDataError as e:
+            await callback.message.answer(f"⚠️ {instrument} : {e}")
+            continue
+        snap_m5 = await indicators.analyze_instrument(instrument, "M5")
+        if snap_m5 is None:
+            await callback.message.answer(f"⚠️ {instrument} : indicateurs indisponibles.")
+            continue
+        candle_analysis = candlestick.analyze_candles(instrument, "M5", candles_m5)
+
+        agent_signals = agents.run_all_agents(snap_m5, candle_analysis, candles_m5)
+        pipeline = validators.run_validators(agent_signals, snap_m5)
+
+        lines = [f"✅ {instrument} — Validation\n"]
+        lines += [a.summary_line() for a in agent_signals]
+        lines.append("")
+        lines.append(pipeline.v1.summary_line())
+        lines += [f"  • {r}" for r in pipeline.v1.reasons]
+        lines.append(pipeline.v2.summary_line())
+        lines += [f"  • {r}" for r in pipeline.v2.reasons]
+        lines.append("")
+        if pipeline.final_approved:
+            lines.append(f"🎯 DÉCISION FINALE : {pipeline.final_direction.value} — Risque : {pipeline.risk_level()}")
+        else:
+            lines.append("🚫 DÉCISION FINALE : NO TRADE")
         await callback.message.answer("\n".join(lines))
 
 

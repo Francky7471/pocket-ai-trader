@@ -38,6 +38,7 @@ import market_data
 import indicators
 import candlestick
 import strategy
+import agents
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pocket_ai_trader")
@@ -215,6 +216,7 @@ def main_menu() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="📐 Stratégies", callback_data="show_strategies"),
+            InlineKeyboardButton(text="🤖 Agents IA", callback_data="show_agents"),
         ],
         [
             InlineKeyboardButton(text="📈 Statistiques", callback_data="stats"),
@@ -468,6 +470,31 @@ async def cb_show_strategies(callback: CallbackQuery) -> None:
 
         signals = strategy.run_all_strategies(snap_m5, candle_analysis, snap_h1, snap_m15)
         lines = [f"📐 {instrument} — 9 stratégies\n"] + [sig.summary_line() for sig in signals]
+        await callback.message.answer("\n".join(lines))
+
+
+@router.callback_query(F.data == "show_agents")
+async def cb_show_agents(callback: CallbackQuery) -> None:
+    if not is_authorized(callback.from_user.id):
+        await callback.answer("⛔ Accès non autorisé.", show_alert=True)
+        return
+    await callback.answer()
+    s = get_settings(callback.from_user.id)
+    await callback.message.answer("⏳ Consultation des 5 agents IA...")
+    for instrument in s.instruments:
+        try:
+            candles_m5 = await market_data.get_candles(instrument, "M5", count=30)
+        except market_data.MarketDataError as e:
+            await callback.message.answer(f"⚠️ {instrument} : {e}")
+            continue
+        snap_m5 = await indicators.analyze_instrument(instrument, "M5")
+        if snap_m5 is None:
+            await callback.message.answer(f"⚠️ {instrument} : indicateurs indisponibles.")
+            continue
+        candle_analysis = candlestick.analyze_candles(instrument, "M5", candles_m5)
+
+        signals = agents.run_all_agents(snap_m5, candle_analysis, candles_m5)
+        lines = [f"🤖 {instrument} — 5 agents IA\n"] + [sig.summary_line() for sig in signals]
         await callback.message.answer("\n".join(lines))
 
 

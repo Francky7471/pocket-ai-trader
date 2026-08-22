@@ -36,6 +36,7 @@ from aiohttp import web
 import db
 import market_data
 import indicators
+import candlestick
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pocket_ai_trader")
@@ -209,6 +210,7 @@ def main_menu() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="🧠 Indicateurs", callback_data="show_indicators"),
+            InlineKeyboardButton(text="🕯️ Chandeliers", callback_data="show_candles"),
         ],
         [
             InlineKeyboardButton(text="📈 Statistiques", callback_data="stats"),
@@ -420,6 +422,25 @@ async def cb_show_indicators(callback: CallbackQuery) -> None:
             await callback.message.answer(f"⚠️ {instrument} : indicateurs indisponibles.")
             continue
         lines = [f"🧠 {instrument} — M5\n"] + snap.summary_lines()
+        await callback.message.answer("\n".join(lines))
+
+
+@router.callback_query(F.data == "show_candles")
+async def cb_show_candles(callback: CallbackQuery) -> None:
+    if not is_authorized(callback.from_user.id):
+        await callback.answer("⛔ Accès non autorisé.", show_alert=True)
+        return
+    await callback.answer()
+    s = get_settings(callback.from_user.id)
+    await callback.message.answer("⏳ Analyse des chandeliers en cours...")
+    for instrument in s.instruments:
+        try:
+            candles = await market_data.get_candles(instrument, "M5", count=20)
+        except market_data.MarketDataError as e:
+            await callback.message.answer(f"⚠️ {instrument} : {e}")
+            continue
+        analysis = candlestick.analyze_candles(instrument, "M5", candles)
+        lines = [f"🕯️ {instrument} — M5\n"] + analysis.summary_lines()
         await callback.message.answer("\n".join(lines))
 
 

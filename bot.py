@@ -37,6 +37,7 @@ import db
 import market_data
 import indicators
 import candlestick
+import strategy
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pocket_ai_trader")
@@ -211,6 +212,9 @@ def main_menu() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="🧠 Indicateurs", callback_data="show_indicators"),
             InlineKeyboardButton(text="🕯️ Chandeliers", callback_data="show_candles"),
+        ],
+        [
+            InlineKeyboardButton(text="📐 Stratégies", callback_data="show_strategies"),
         ],
         [
             InlineKeyboardButton(text="📈 Statistiques", callback_data="stats"),
@@ -441,6 +445,29 @@ async def cb_show_candles(callback: CallbackQuery) -> None:
             continue
         analysis = candlestick.analyze_candles(instrument, "M5", candles)
         lines = [f"🕯️ {instrument} — M5\n"] + analysis.summary_lines()
+        await callback.message.answer("\n".join(lines))
+
+
+@router.callback_query(F.data == "show_strategies")
+async def cb_show_strategies(callback: CallbackQuery) -> None:
+    if not is_authorized(callback.from_user.id):
+        await callback.answer("⛔ Accès non autorisé.", show_alert=True)
+        return
+    await callback.answer()
+    s = get_settings(callback.from_user.id)
+    await callback.message.answer("⏳ Calcul des 9 stratégies (H1 + M15 + M5, ça prend ~10-15s)...")
+    for instrument in s.instruments:
+        snap_h1 = await indicators.analyze_instrument(instrument, "H1")
+        snap_m15 = await indicators.analyze_instrument(instrument, "M15")
+        snap_m5 = await indicators.analyze_instrument(instrument, "M5")
+        if snap_m5 is None:
+            await callback.message.answer(f"⚠️ {instrument} : données M5 indisponibles.")
+            continue
+        candles_m5 = await market_data.get_candles(instrument, "M5", count=20)
+        candle_analysis = candlestick.analyze_candles(instrument, "M5", candles_m5)
+
+        signals = strategy.run_all_strategies(snap_m5, candle_analysis, snap_h1, snap_m15)
+        lines = [f"📐 {instrument} — 9 stratégies\n"] + [sig.summary_line() for sig in signals]
         await callback.message.answer("\n".join(lines))
 
 

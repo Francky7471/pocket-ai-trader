@@ -35,6 +35,7 @@ from aiohttp import web
 
 import db
 import market_data
+import indicators
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pocket_ai_trader")
@@ -205,6 +206,9 @@ def main_menu() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="💰 Lot / TP", callback_data="settings_amount"),
             InlineKeyboardButton(text="📊 Marchés", callback_data="settings_instruments"),
+        ],
+        [
+            InlineKeyboardButton(text="🧠 Indicateurs", callback_data="show_indicators"),
         ],
         [
             InlineKeyboardButton(text="📈 Statistiques", callback_data="stats"),
@@ -400,6 +404,23 @@ async def cb_show_markets(callback: CallbackQuery) -> None:
         else:
             lines.append(f"{instrument} : indisponible (voir logs)")
     await callback.message.answer("\n".join(lines))
+
+
+@router.callback_query(F.data == "show_indicators")
+async def cb_show_indicators(callback: CallbackQuery) -> None:
+    if not is_authorized(callback.from_user.id):
+        await callback.answer("⛔ Accès non autorisé.", show_alert=True)
+        return
+    await callback.answer()
+    s = get_settings(callback.from_user.id)
+    await callback.message.answer("⏳ Calcul des indicateurs en cours (peut prendre quelques secondes)...")
+    for instrument in s.instruments:
+        snap = await indicators.analyze_instrument(instrument, timeframe="M5")
+        if snap is None:
+            await callback.message.answer(f"⚠️ {instrument} : indicateurs indisponibles.")
+            continue
+        lines = [f"🧠 {instrument} — M5\n"] + snap.summary_lines()
+        await callback.message.answer("\n".join(lines))
 
 
 @router.callback_query(F.data.in_({"settings_amount", "stats", "backtest", "risk", "history"}))

@@ -34,6 +34,7 @@ from aiogram.types import (
 from aiohttp import web
 
 import db
+import market_data
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pocket_ai_trader")
@@ -383,7 +384,25 @@ async def cb_scan_stop(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data.in_({"settings_amount", "settings_instruments", "stats", "backtest", "risk", "history"}))
+@router.callback_query(F.data == "settings_instruments")
+async def cb_show_markets(callback: CallbackQuery) -> None:
+    if not is_authorized(callback.from_user.id):
+        await callback.answer("⛔ Accès non autorisé.", show_alert=True)
+        return
+    await callback.answer()
+    s = get_settings(callback.from_user.id)
+    await callback.message.answer("⏳ Récupération des prix en direct...")
+    lines = ["📊 Marchés suivis\n"]
+    for instrument in s.instruments:
+        price = await market_data.get_latest_price(instrument)
+        if price is not None:
+            lines.append(f"{instrument} : {price}")
+        else:
+            lines.append(f"{instrument} : indisponible (voir logs)")
+    await callback.message.answer("\n".join(lines))
+
+
+@router.callback_query(F.data.in_({"settings_amount", "stats", "backtest", "risk", "history"}))
 async def cb_placeholder(callback: CallbackQuery) -> None:
     await callback.answer("Disponible dans une phase suivante.", show_alert=True)
 
